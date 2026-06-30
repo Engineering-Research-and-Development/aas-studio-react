@@ -43,7 +43,7 @@ import {
 import VersionHistoryDrawer from './components/VersionHistoryDrawer';
 import GraphView from './components/GraphView';
 
-import { useAASContext, XsdValueType, AASModel, validateAAS, ValidationResult } from '@/context/AASContext';
+import { useAASContext, XsdValueType, AASModel, SubmodelTemplate, validateAAS, ValidationResult } from '@/context/AASContext';
 import { useDialogContext } from '@/context/DialogContext';
 import { useAASVersioning } from '@/hooks/useAASVersioning';
 import { useCustomSnackbar } from '@/context/SnackbarContext';
@@ -66,6 +66,8 @@ type EditorView = 'list' | 'graph';
 
 const XSD_TYPES: XsdValueType[] = ['xs:string', 'xs:int', 'xs:double', 'xs:float', 'xs:boolean', 'xs:date', 'xs:dateTime', 'xs:long', 'xs:short', 'xs:byte', 'xs:anyURI', 'xs:duration', 'xs:decimal'];
 
+const NO_SUBMODELS: SubmodelTemplate[] = [];
+
 export default function AASEditor() {
   const {
     selectedModelId, setSelectedModelId,
@@ -78,9 +80,10 @@ export default function AASEditor() {
     importAas, setSubmodels, refreshModels
   } = useAASContext();
 
-  if (!currentModel) return null;
-
-  const { submodels, idShort: aasIdShort, assetId: aasAssetId, description: aasDescription } = currentModel;
+  const submodels = currentModel?.submodels ?? NO_SUBMODELS;
+  const aasIdShort = currentModel?.idShort ?? '';
+  const aasAssetId = currentModel?.assetId ?? '';
+  const aasDescription = currentModel?.description ?? '';
 
   const { setHandlers } = useDialogContext();
   const { createDocument, commitSubmodel } = useAASVersioning();
@@ -109,7 +112,7 @@ export default function AASEditor() {
       return next;
     });
 
-  const versionDocumentId = currentModel.documentId ?? null;
+  const versionDocumentId = currentModel?.documentId ?? null;
 
   const handleValidateInline = useCallback(() => {
     const result = validateAAS({ idShort: aasIdShort, assetId: aasAssetId }, submodels);
@@ -129,7 +132,7 @@ export default function AASEditor() {
   }, [aasIdShort, aasAssetId, submodels]);
 
   const handleExport = useCallback(() => {
-    const env = buildAasEnvironment(aasIdShort, aasAssetId, aasDescription, currentModel.assetKind, submodels);
+    const env = buildAasEnvironment(aasIdShort, aasAssetId, aasDescription, currentModel?.assetKind ?? 'Instance', submodels);
     const data = JSON.stringify(env, null, 2);
     const blob = new Blob([data], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -138,7 +141,7 @@ export default function AASEditor() {
     a.download = `${aasIdShort || 'aas'}.json`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [aasIdShort, aasAssetId, aasDescription, currentModel.assetKind, submodels]);
+  }, [aasIdShort, aasAssetId, aasDescription, currentModel?.assetKind, submodels]);
 
   // Register secondary menu handlers
   useEffect(() => {
@@ -204,6 +207,37 @@ export default function AASEditor() {
       setIsSaving(false);
     }
   }, [aasIdShort, aasAssetId, aasDescription, submodels, currentModel, createDocument, commitSubmodel, refreshModels, showSnackbar]);
+
+  // Empty state: no AAS model yet (fresh DB / nothing imported). Placed after
+  // ALL hooks so the hook order never changes between renders; the "Nuova
+  // entità" menu handler is already registered above, so it works here too.
+  if (!currentModel) {
+    return (
+      <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', p: 4 }}>
+        <Stack alignItems="center" spacing={1.5} sx={{ maxWidth: 420, textAlign: 'center' }}>
+          <Typography fontSize={48}>🗂️</Typography>
+          <Typography variant="h6" fontWeight={600}>Nessun modello AAS</Typography>
+          <Typography variant="body2" color="text.secondary">
+            Crea una nuova entità AAS o importa un file JSON standard per iniziare.
+          </Typography>
+          <Button
+            variant="contained"
+            startIcon={<AddRounded />}
+            onClick={() => setShowAddEntityDialog(true)}
+            sx={{ mt: 1 }}
+          >
+            Nuova entità
+          </Button>
+        </Stack>
+        <AddEntityDialog
+          open={showAddEntityDialog}
+          onClose={() => setShowAddEntityDialog(false)}
+          onAdd={createModel}
+          onImport={importAas}
+        />
+      </Box>
+    );
+  }
 
   const toggleSubmodel = (id: string) => {
     setExpandedSubmodels(prev => {
