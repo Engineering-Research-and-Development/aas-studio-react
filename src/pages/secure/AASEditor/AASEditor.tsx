@@ -4,6 +4,11 @@ import {
   Button,
   Chip,
   Collapse,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
   FormControl,
   FormLabel,
   IconButton,
@@ -76,9 +81,10 @@ export default function AASEditor() {
     availableModels,
     currentModel, currentVersion,
     createModel,
+    deleteModel,
     updateCurrentModel,
     updateVersionStatus,
-    addSubmodel, removeSubmodel, updateSubmodel, updateElement,
+    addSubmodel, removeSubmodel, updateSubmodel, updateElement, updateChild,
     importAas, setSubmodels, refreshModels
   } = useAASContext();
 
@@ -100,6 +106,7 @@ export default function AASEditor() {
   const [showValidationDialog, setShowValidationDialog] = useState(false);
   const [initialValidationData, setInitialValidationData] = useState<Record<string, unknown> | null>(null);
   const [showHistory, setShowHistory] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showAddEntityDialog, setShowAddEntityDialog] = useState(false);
   const [showCommitDialog, setShowCommitDialog] = useState(false);
   const [showConnectDialog, setShowConnectDialog] = useState(false);
@@ -381,6 +388,17 @@ export default function AASEditor() {
           sx={{ ml: 0.5 }}
         >
           History
+        </Button>
+
+        <Button
+          variant="outlined"
+          color="error"
+          size="small"
+          startIcon={<DeleteRounded />}
+          onClick={() => setShowDeleteConfirm(true)}
+          disabled={!currentModel}
+        >
+          Elimina
         </Button>
       </Stack>
 
@@ -725,7 +743,7 @@ export default function AASEditor() {
                       <Box sx={{ p: 1.5 }}>
                         {(sm.elements || []).map((el, ei) => {
                           const typeColor: 'default' | 'warning' | 'info' =
-                            el.type === 'SubmodelElementCollection' ? 'warning' :
+                            el.type === 'SubmodelElementCollection' || el.type === 'SubmodelElementList' ? 'warning' :
                             el.type === 'Operation' ? 'info' : 'default';
                           const elErrors = validationResult?.errors.filter(
                             f => f.path.startsWith(smPrefix) && f.path.includes(`→ ${el.idShort}`)
@@ -813,12 +831,12 @@ export default function AASEditor() {
                                 </Stack>
                               )}
 
-                              {el.type === 'SubmodelElementCollection' && el.children && (
+                              {(el.type === 'SubmodelElementCollection' || el.type === 'SubmodelElementList') && el.children && (
                                 <Box sx={{ mt: 0.75, pl: 1.5, borderLeft: '2px solid', borderColor: 'divider' }}>
                                   {el.children.map((ch, ci) => (
                                     <Stack key={ci} direction="row" alignItems="center" spacing={0.75} py={0.4}>
                                       <Typography variant="caption" fontFamily="monospace" color="text.secondary" sx={{ width: 130, flexShrink: 0 }}>
-                                        {ch.idShort}
+                                        {ch.idShort || `[${ci}]`}
                                         {ch.required && <Box component="span" color="error.main"> *</Box>}
                                         <Box component="span" color="text.disabled"> : {ch.type}</Box>
                                       </Typography>
@@ -826,12 +844,17 @@ export default function AASEditor() {
                                         <TextField
                                           size="small"
                                           fullWidth
+                                          value={ch.value || ''}
+                                          onChange={(e) => updateChild(sm.id, ei, ci, 'value', e.target.value)}
                                           placeholder={ch.valueType ? `(${ch.valueType})` : 'valore…'}
                                           inputProps={{ style: { fontFamily: 'monospace', fontSize: 10 } }}
                                         />
                                       )}
                                     </Stack>
                                   ))}
+                                  {!el.children.length && (
+                                    <Typography variant="caption" fontFamily="monospace" color="text.disabled">vuoto</Typography>
+                                  )}
                                 </Box>
                               )}
 
@@ -892,6 +915,25 @@ export default function AASEditor() {
 
       <AddSubmodelDialog open={showAddDialog} onClose={() => setShowAddDialog(false)} onAdd={addSubmodel} />
       <AddEntityDialog open={showAddEntityDialog} onClose={() => setShowAddEntityDialog(false)} onAdd={createModel} onImport={importAas} />
+
+      <Dialog open={showDeleteConfirm} onClose={() => setShowDeleteConfirm(false)}>
+        <DialogTitle>Elimina AAS</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Sei sicuro di voler eliminare "{currentModel?.idShort}"?
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setShowDeleteConfirm(false)}>No</Button>
+          <Button
+            color="error"
+            variant="contained"
+            onClick={() => { deleteModel(); setShowDeleteConfirm(false); }}
+          >
+            Sì
+          </Button>
+        </DialogActions>
+      </Dialog>
       <CommitDialog
         open={showCommitDialog}
         onClose={() => setShowCommitDialog(false)}

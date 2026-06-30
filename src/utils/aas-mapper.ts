@@ -72,6 +72,7 @@ function mapChild(el: Json): SubmodelElementChild {
     valueType: el.valueType as XsdValueType | undefined,
     semanticId: extractSemanticId(el.semanticId),
     required: false,
+    value: el.value != null && typeof el.value !== 'object' ? String(el.value) : undefined,
   };
 }
 

@@ -19,6 +19,7 @@ import {
 } from '@mui/material';
 import { AddRounded, CloseRounded, FileUploadRounded, UploadFileRounded } from '@mui/icons-material';
 import type { AASModel, AssetKind, SubmodelTemplate } from '@/context/AASContext';
+import { mapElement } from '@/utils/aas-mapper';
 
 type Mode = 'create' | 'import';
 
@@ -48,14 +49,7 @@ function parseAasJson(raw: unknown): AASModel {
       semanticId: sm.semanticId?.keys?.[0]?.value || '',
       description: sm.description?.[0]?.text || '',
       category: 'Imported',
-      elements: ((sm.submodelElements || []) as any[]).map((el) => ({
-        idShort: el.idShort,
-        type: el.modelType,
-        value: el.value as string | undefined,
-        valueType: el.valueType,
-        semanticId: el.semanticId?.keys?.[0]?.value || '',
-        required: false,
-      })),
+      elements: ((sm.submodelElements || []) as any[]).map(mapElement),
     })),
   };
 }

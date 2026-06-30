@@ -69,6 +69,7 @@ export interface SubmodelElementChild {
   valueType?: XsdValueType;
   semanticId?: string;
   required: boolean;
+  value?: string;
 }
 
 export interface SubmodelElement {
@@ -340,12 +341,14 @@ interface AASContextType {
   currentVersion: AASVersion;
   loading: boolean;
   createModel: (data: { idShort: string; assetId: string; description: string; assetKind: AssetKind }) => void;
+  deleteModel: () => void;
   updateCurrentModel: (patch: Partial<AASModel>) => void;
   updateVersionStatus: (status: VersionStatus) => void;
   addSubmodel: (sm: SubmodelTemplate) => void;
   removeSubmodel: (id: string) => void;
   updateSubmodel: (smId: string, patch: Partial<SubmodelTemplate>) => void;
   updateElement: (smId: string, elIdx: number, field: string, value: string | Record<string, string>) => void;
+  updateChild: (smId: string, elIdx: number, childIdx: number, field: string, value: string) => void;
   importAas: (model: AASModel) => void;
   setSubmodels: (sms: SubmodelTemplate[]) => void;
   /** Reload from the server. Pass the id of a just-committed model so its
@@ -455,6 +458,20 @@ export function AASProvider({ children }: { children: ReactNode }) {
     setSelectedModelId(id);
   }, []);
 
+  // Delete only the currently selected model. Removes it locally (and from the
+  // server if it was committed) and selects the next remaining model.
+  const deleteModel = useCallback(async () => {
+    const models = availableModelsRef.current;
+    const target = models.find(m => m.id === selectedModelId);
+    if (!target) return;
+    const next = models.filter(m => m.id !== target.id);
+    setAvailableModels(next);
+    setSelectedModelId(next[0]?.id ?? '');
+    if (target.documentId) {
+      try { await api.delete(`/v1/aas/${target.documentId}`); } catch { /* local removal stands */ }
+    }
+  }, [selectedModelId, api]);
+
   const updateCurrentModel = useCallback((patch: Partial<AASModel>) => {
     setAvailableModels(prev => prev.map(m =>
       m.id === selectedModelId ? { ...m, ...patch, dirty: true } : m
@@ -498,6 +515,24 @@ export function AASProvider({ children }: { children: ReactNode }) {
           if (s.id !== smId) return s;
           const elements = [...s.elements];
           elements[elIdx] = { ...elements[elIdx], [field]: value };
+          return { ...s, elements };
+        })
+      };
+    }));
+  }, [selectedModelId]);
+
+  const updateChild = useCallback((smId: string, elIdx: number, childIdx: number, field: string, value: string) => {
+    setAvailableModels(prev => prev.map(m => {
+      if (m.id !== selectedModelId) return m;
+      return {
+        ...m,
+        dirty: true,
+        submodels: m.submodels.map(s => {
+          if (s.id !== smId) return s;
+          const elements = [...s.elements];
+          const children = [...(elements[elIdx].children || [])];
+          children[childIdx] = { ...children[childIdx], [field]: value };
+          elements[elIdx] = { ...elements[elIdx], children };
           return { ...s, elements };
         })
       };
@@ -552,12 +587,14 @@ export function AASProvider({ children }: { children: ReactNode }) {
         currentVersion,
         loading,
         createModel,
+        deleteModel,
         updateCurrentModel,
         updateVersionStatus,
         addSubmodel,
         removeSubmodel,
         updateSubmodel,
         updateElement,
+        updateChild,
         importAas,
         setSubmodels,
         refreshModels,
