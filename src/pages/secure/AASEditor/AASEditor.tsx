@@ -56,6 +56,7 @@ import ConnectServerDialog from './dialogs/ConnectServerDialog';
 import ConfirmExportDialog from './dialogs/ConfirmExportDialog';
 import type { CommitStatus } from '@/hooks/useAASVersioning';
 import { buildAasEnvironment } from '@/utils/aas-builder';
+import { verifyWithLibrary } from '@/utils/aas-validation';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type EditorView = 'list' | 'graph';
@@ -103,7 +104,13 @@ export default function AASEditor() {
   const [showConnectDialog, setShowConnectDialog] = useState(false);
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
+  const [validationExpanded, setValidationExpanded] = useState(false);
   const [editingSmIdx, setEditingSmIdx] = useState<Set<number>>(new Set());
+
+  useEffect(() => {
+    setValidationResult(null);
+    setValidationExpanded(false);
+  }, [selectedModelId]);
 
   const toggleEditSm = (idx: number) =>
     setEditingSmIdx(prev => {
@@ -115,8 +122,23 @@ export default function AASEditor() {
   const versionDocumentId = currentModel?.documentId ?? null;
 
   const handleValidateInline = useCallback(() => {
-    const result = validateAAS({ idShort: aasIdShort, assetId: aasAssetId }, submodels);
+    // Authoring-intent checks (required, valueType, idShort format, duplicates)
+    // plus the official IDTA metamodel verification from aas-core.
+    const custom = validateAAS({ idShort: aasIdShort, assetId: aasAssetId }, submodels);
+    const libErrors = verifyWithLibrary(
+      aasIdShort, aasAssetId, aasDescription, currentModel?.assetKind ?? 'Instance', submodels
+    );
+    const seen = new Set(custom.errors.map(f => `${f.path}|${f.msg}`));
+    const errors = [...custom.errors];
+    for (const f of libErrors) {
+      const key = `${f.path}|${f.msg}`;
+      if (!seen.has(key)) { seen.add(key); errors.push(f); }
+    }
+    const result: ValidationResult = {
+      errors, warnings: custom.warnings, infos: custom.infos, valid: errors.length === 0,
+    };
     setValidationResult(result);
+    setValidationExpanded(errors.length + result.warnings.length > 0);
     if (!result.valid) {
       const errorSmIndices = new Set(
         result.errors
@@ -129,7 +151,7 @@ export default function AASEditor() {
         return next;
       });
     }
-  }, [aasIdShort, aasAssetId, submodels]);
+  }, [aasIdShort, aasAssetId, aasDescription, currentModel?.assetKind, submodels]);
 
   const handleExport = useCallback(() => {
     const env = buildAasEnvironment(aasIdShort, aasAssetId, aasDescription, currentModel?.assetKind ?? 'Instance', submodels);
@@ -501,33 +523,68 @@ export default function AASEditor() {
                 <Paper
                   variant="outlined"
                   sx={{
-                    mb: 2, px: 2, py: 1.25, display: 'flex', alignItems: 'center', gap: 1.5,
+                    mb: 2,
                     borderColor: validationResult.valid ? 'success.main' : 'error.main',
                     bgcolor: validationResult.valid ? 'rgba(16,185,129,.06)' : 'rgba(239,68,68,.06)',
                   }}
                 >
-                  {validationResult.valid
-                    ? <CheckRounded sx={{ color: 'success.main', fontSize: 18 }} />
-                    : <ErrorOutlineRounded sx={{ color: 'error.main', fontSize: 18 }} />}
-                  <Box flex={1}>
-                    {validationResult.valid ? (
-                      <Typography variant="body2" color="success.main" fontWeight={600}>Modello conforme agli standard IDTA</Typography>
-                    ) : (
-                      <Stack direction="row" spacing={1.5} alignItems="center">
-                        <Typography variant="body2" color="error.main" fontWeight={600}>
-                          {validationResult.errors.length} {validationResult.errors.length === 1 ? 'errore' : 'errori'}
-                        </Typography>
-                        {validationResult.warnings.length > 0 && (
+                  <Box sx={{ px: 2, py: 1.25, display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                    {validationResult.valid
+                      ? <CheckRounded sx={{ color: 'success.main', fontSize: 18 }} />
+                      : <ErrorOutlineRounded sx={{ color: 'error.main', fontSize: 18 }} />}
+                    <Box flex={1}>
+                      {validationResult.valid ? (
+                        validationResult.warnings.length > 0 ? (
                           <Typography variant="body2" color="warning.main" fontWeight={600}>
-                            {validationResult.warnings.length} {validationResult.warnings.length === 1 ? 'avviso' : 'avvisi'}
+                            Conforme agli standard IDTA — {validationResult.warnings.length} {validationResult.warnings.length === 1 ? 'avviso' : 'avvisi'}
                           </Typography>
-                        )}
-                      </Stack>
+                        ) : (
+                          <Typography variant="body2" color="success.main" fontWeight={600}>Modello conforme agli standard IDTA</Typography>
+                        )
+                      ) : (
+                        <Stack direction="row" spacing={1.5} alignItems="center">
+                          <Typography variant="body2" color="error.main" fontWeight={600}>
+                            {validationResult.errors.length} {validationResult.errors.length === 1 ? 'errore' : 'errori'}
+                          </Typography>
+                          {validationResult.warnings.length > 0 && (
+                            <Typography variant="body2" color="warning.main" fontWeight={600}>
+                              {validationResult.warnings.length} {validationResult.warnings.length === 1 ? 'avviso' : 'avvisi'}
+                            </Typography>
+                          )}
+                        </Stack>
+                      )}
+                    </Box>
+                    {(validationResult.errors.length + validationResult.warnings.length) > 0 && (
+                      <IconButton size="small" onClick={() => setValidationExpanded(e => !e)} sx={{ color: 'text.disabled' }}>
+                        <ExpandMoreRounded sx={{ fontSize: 18, transition: 'transform .2s', transform: validationExpanded ? 'rotate(180deg)' : 'none' }} />
+                      </IconButton>
                     )}
+                    <IconButton size="small" onClick={() => setValidationResult(null)} sx={{ color: 'text.disabled' }}>
+                      <CloseRounded sx={{ fontSize: 16 }} />
+                    </IconButton>
                   </Box>
-                  <IconButton size="small" onClick={() => setValidationResult(null)} sx={{ color: 'text.disabled' }}>
-                    <CloseRounded sx={{ fontSize: 16 }} />
-                  </IconButton>
+                  <Collapse in={validationExpanded}>
+                    <Stack spacing={0.5} sx={{ px: 2, pb: 1.5, pt: 0.5, borderTop: 1, borderColor: 'divider' }}>
+                      {[
+                        ...validationResult.errors.map(f => ({ ...f, sev: 'error' as const })),
+                        ...validationResult.warnings.map(f => ({ ...f, sev: 'warning' as const })),
+                      ].map((f, i) => (
+                        <Stack key={i} direction="row" alignItems="flex-start" spacing={0.75} sx={{ mt: i === 0 ? 0.5 : 0 }}>
+                          {f.sev === 'error'
+                            ? <ErrorOutlineRounded sx={{ fontSize: 14, color: 'error.main', flexShrink: 0, mt: '2px' }} />
+                            : <WarningAmberRounded sx={{ fontSize: 14, color: 'warning.main', flexShrink: 0, mt: '2px' }} />}
+                          <Box>
+                            <Typography variant="caption" color={f.sev === 'error' ? 'error.main' : 'warning.main'} fontWeight={600} sx={{ display: 'block' }}>
+                              {f.msg}
+                            </Typography>
+                            <Typography variant="caption" color="text.disabled" fontFamily="monospace" sx={{ display: 'block' }}>
+                              {f.path}
+                            </Typography>
+                          </Box>
+                        </Stack>
+                      ))}
+                    </Stack>
+                  </Collapse>
                 </Paper>
               )}
 
